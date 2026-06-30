@@ -468,7 +468,7 @@ function LinkGeneratorPage() {
           <input
             value={manualName}
             onChange={(event) => setManualName(event.target.value)}
-            placeholder="Николас с супругой"
+            placeholder=""
             autoComplete="off"
           />
         </label>
