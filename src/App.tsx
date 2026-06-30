@@ -310,7 +310,10 @@ function MainInvitation({ revealed, guestName }: { revealed: boolean; guestName:
 
       <AnimatedSection className="intro paper-section">
         <Reveal>
-          <h2 className={getIntroTitleClass(introTitle, Boolean(guestName))}>{introTitle}</h2>
+          <h2 className={getIntroTitleClass(introTitle, Boolean(guestName))}>
+            {guestName && <span className="intro__appeal">Уважаемый/ая </span>}
+            <span className="intro__title-name">{introTitle}</span>
+          </h2>
           <p>{copy.dearText}</p>
           <figure className="intro-photo">
             <motion.img

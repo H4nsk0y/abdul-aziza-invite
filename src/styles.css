@@ -719,6 +719,18 @@ input:focus-visible {
   text-wrap: balance;
 }
 
+.intro__appeal {
+  display: block;
+  margin-bottom: 12px;
+  font: 500 12px/1.25 'Manrope', sans-serif;
+  letter-spacing: .08em;
+  color: var(--wine);
+}
+
+.intro__title-name {
+  display: block;
+}
+
 .intro__title--personal {
   max-width: 500px;
   letter-spacing: -.015em;
