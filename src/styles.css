@@ -783,6 +783,8 @@ input:focus-visible {
   object-fit: cover;
   object-position: 50% 50%;
   border-radius: 154px 154px 8px 8px;
+  transform-origin: 50% 35%;
+  will-change: transform;
 }
 
 .countdown-section h2 i {
@@ -949,6 +951,8 @@ input:focus-visible {
   object-fit: cover;
   object-position: 50% 52%;
   filter: grayscale(1) contrast(1.05);
+  transform-origin: 50% 43%;
+  will-change: transform;
 }
 
 .countdown-section__shade {

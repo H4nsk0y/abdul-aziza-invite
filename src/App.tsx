@@ -291,6 +291,7 @@ function Countdown() {
 function MainInvitation({ revealed, guestName }: { revealed: boolean; guestName: string }) {
   const names = event.partners
   const introTitle = guestName || copy.dearTitle
+  const reduced = useReducedMotion()
 
   return (
     <main className="invitation">
@@ -312,7 +313,14 @@ function MainInvitation({ revealed, guestName }: { revealed: boolean; guestName:
           <h2 className={getIntroTitleClass(introTitle, Boolean(guestName))}>{introTitle}</h2>
           <p>{copy.dearText}</p>
           <figure className="intro-photo">
-            <img src={introPhotoUrl} alt="" />
+            <motion.img
+              src={introPhotoUrl}
+              alt=""
+              initial={reduced ? false : { scale: 1.08 }}
+              whileInView={reduced ? undefined : { scale: 1.01 }}
+              viewport={{ once: true, amount: 0.45 }}
+              transition={{ duration: 9.5, ease: [0.16, 1, 0.3, 1] }}
+            />
           </figure>
         </Reveal>
       </AnimatedSection>
@@ -341,7 +349,14 @@ function MainInvitation({ revealed, guestName }: { revealed: boolean; guestName:
       </AnimatedSection>
 
       <AnimatedSection className="countdown-section">
-        <img src={countdownPhotoUrl} alt="" />
+        <motion.img
+          src={countdownPhotoUrl}
+          alt=""
+          initial={reduced ? false : { scale: 1.09 }}
+          whileInView={reduced ? undefined : { scale: 1.01 }}
+          viewport={{ once: true, amount: 0.18 }}
+          transition={{ duration: 9.5, ease: [0.16, 1, 0.3, 1] }}
+        />
         <div className="countdown-section__shade" />
         <Reveal className="countdown-section__content">
           <span>{copy.countdownLabel}</span>
