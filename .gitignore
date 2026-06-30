@@ -5,6 +5,7 @@ dist
 *.log
 .DS_Store
 work/
+/public/*_1.jpg
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

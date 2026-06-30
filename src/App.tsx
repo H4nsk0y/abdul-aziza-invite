@@ -1,8 +1,8 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { FormEvent, lazy, ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { copy, event, Language } from './content'
+import type { ChangeEvent, ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { copy, event } from './content'
 import { useSmoothWheelScroll } from './hooks/useSmoothWheelScroll'
-import { Attendance, submitRsvp } from './services/rsvp'
 
 const photoUrl = `${import.meta.env.BASE_URL}couple.jpg`
 const introPhotoUrl = `${import.meta.env.BASE_URL}intro-photo.jpg`
@@ -12,7 +12,6 @@ const musicUrls = ['trek_1.mp3', 'trek_2.mp3', 'trek_3.mp3', 'trek_4.mp3'].map(
 )
 const musicQueueStorageKey = 'wedding-music-queue'
 const lastMusicStorageKey = 'wedding-last-music'
-const AdminPage = lazy(() => import('./admin/AdminPage'))
 
 function fallbackMusicUrl() {
   return musicUrls[Math.floor(Math.random() * musicUrls.length)] ?? ''
@@ -58,8 +57,105 @@ function takeNextMusicUrl() {
   }
 }
 
-function getMusicPendingLabel(language: Language) {
-  return language === 'ru' ? 'Музыка включается' : 'Երաժշտությունը միանում է'
+function getGuestNameFromUrl() {
+  const rawName = new URLSearchParams(window.location.search).get('name')
+  if (!rawName) return ''
+
+  return rawName
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 90)
+}
+
+function getIntroTitleClass(title: string, personalized: boolean) {
+  const classes = ['intro__title']
+
+  if (personalized) classes.push('intro__title--personal')
+  if (title.length > 26) classes.push('intro__title--long')
+  if (title.length > 44) classes.push('intro__title--very-long')
+
+  return classes.join(' ')
+}
+
+type GeneratedLink = {
+  id: string
+  name: string
+  url: string
+}
+
+function getInviteBaseUrl() {
+  const url = new URL(window.location.href)
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+function createGuestLink(name: string) {
+  const url = new URL(getInviteBaseUrl())
+  const normalizedName = normalizeGuestName(name)
+
+  if (normalizedName) {
+    url.searchParams.set('name', normalizedName)
+  }
+
+  return url.toString()
+}
+
+function normalizeGuestName(value: unknown) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 90)
+}
+
+function isHeaderLike(value: string) {
+  return /^(имя|фио|ф\.?и\.?о\.?|гость|гости|приглашение|name|guest)$/i.test(value.trim())
+}
+
+function isLinksRoute() {
+  return window.location.hash.startsWith('#/links') || new URLSearchParams(window.location.search).has('links')
+}
+
+function parseSeparatedText(text: string): unknown[][] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => {
+      const separator = line.includes('\t') ? '\t' : line.includes(';') ? ';' : ','
+      return line.split(separator)
+    })
+}
+
+async function readGuestRowsFromFile(file: File): Promise<unknown[][]> {
+  const extension = file.name.split('.').pop()?.toLowerCase()
+
+  if (extension === 'csv' || extension === 'txt') {
+    return parseSeparatedText(await file.text())
+  }
+
+  if (extension === 'xlsx') {
+    const { readSheet } = await import('read-excel-file/browser')
+    return (await readSheet(file)) as unknown[][]
+  }
+
+  throw new Error('Поддерживаются файлы .xlsx, .csv и .txt. Если файл старого формата .xls — сохраните его как .xlsx.')
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
 }
 
 function Icon({ name }: { name: 'sound' | 'muted' | 'map' | 'heart' | 'calendar' }) {
@@ -84,30 +180,10 @@ function Botanical({ side }: { side: 'left' | 'right' }) {
   )
 }
 
-function LanguageToggle({ language, onChange }: { language: Language; onChange: () => void }) {
-  return (
-    <button className="language-toggle" onClick={onChange} aria-label="Переключить язык">
-      <span className={language === 'ru' ? 'active' : ''}>RU</span>
-      <i />
-      <span className={language === 'hy' ? 'active' : ''}>ՀԱՅ</span>
-    </button>
-  )
-}
-
-function EnvelopeGate({
-  opening,
-  language,
-  onOpen,
-}: {
-  opening: boolean
-  language: Language
-  onOpen: () => void
-}) {
-  const t = copy[language]
-
+function EnvelopeGate({ opening, onOpen }: { opening: boolean; onOpen: () => void }) {
   return (
     <motion.div
-      className={`gate gate--${language} ${opening ? 'gate--opening' : ''}`}
+      className={`gate ${opening ? 'gate--opening' : ''}`}
       initial={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.45 } }}
     >
@@ -115,12 +191,12 @@ function EnvelopeGate({
       <Botanical side="left" />
       <Botanical side="right" />
 
-      <div className="envelope-scene" aria-label={t.tapToOpen}>
+      <div className="envelope-scene" aria-label={copy.tapToOpen}>
         <div className="envelope">
           <div className="envelope__back" />
           <div className="envelope__letter">
             <span>{event.monogram}</span>
-            <small>{t.heroDate}</small>
+            <small>{copy.heroDate}</small>
           </div>
           <div className="envelope__flap envelope__flap--top" />
           <div className="envelope__front">
@@ -128,7 +204,7 @@ function EnvelopeGate({
             <div className="envelope__fold envelope__fold--right" />
             <div className="envelope__fold envelope__fold--bottom" />
           </div>
-          <button className="wax-seal" onClick={onOpen} disabled={opening} aria-label={t.tapToOpen}>
+          <button className="wax-seal" onClick={onOpen} disabled={opening} aria-label={copy.tapToOpen}>
             <span>{event.monogram}</span>
           </button>
         </div>
@@ -136,7 +212,7 @@ function EnvelopeGate({
 
       <div className="gate__hint">
         <span />
-        <p>{t.tapToOpen}</p>
+        <p>{copy.tapToOpen}</p>
         <span />
       </div>
     </motion.div>
@@ -183,8 +259,7 @@ function SectionTitle({ number, children }: { number: string; children: ReactNod
   )
 }
 
-function Countdown({ language }: { language: Language }) {
-  const t = copy[language]
+function Countdown() {
   const target = useMemo(() => new Date(event.isoDate).getTime(), [])
   const [left, setLeft] = useState(() => Math.max(0, target - Date.now()))
 
@@ -195,10 +270,10 @@ function Countdown({ language }: { language: Language }) {
 
   const totalSeconds = Math.floor(left / 1000)
   const values = [
-    [Math.floor(totalSeconds / 86400), t.days],
-    [Math.floor((totalSeconds % 86400) / 3600), t.hours],
-    [Math.floor((totalSeconds % 3600) / 60), t.minutes],
-    [totalSeconds % 60, t.seconds],
+    [Math.floor(totalSeconds / 86400), copy.days],
+    [Math.floor((totalSeconds % 86400) / 3600), copy.hours],
+    [Math.floor((totalSeconds % 3600) / 60), copy.minutes],
+    [totalSeconds % 60, copy.seconds],
   ]
 
   return (
@@ -213,91 +288,18 @@ function Countdown({ language }: { language: Language }) {
   )
 }
 
-function RsvpForm({ language }: { language: Language }) {
-  const t = copy[language]
-  const [fullName, setFullName] = useState('')
-  const [attendance, setAttendance] = useState<Attendance | ''>('')
-  const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'demo' | 'error'>('idle')
-
-  async function handleSubmit(event_: FormEvent) {
-    event_.preventDefault()
-    if (!fullName.trim() || !attendance) {
-      setStatus('error')
-      return
-    }
-
-    setStatus('sending')
-    try {
-      const mode = await submitRsvp({ fullName: fullName.trim(), attendance, language })
-      setStatus(mode === 'demo' ? 'demo' : 'success')
-    } catch {
-      setStatus('error')
-    }
-  }
+function MainInvitation({ revealed, guestName }: { revealed: boolean; guestName: string }) {
+  const names = event.partners
+  const introTitle = guestName || copy.dearTitle
 
   return (
-    <form className="rsvp" onSubmit={handleSubmit}>
-      <label className="field">
-        <span>{t.fullName}</span>
-        <input
-          value={fullName}
-          onChange={(e) => { setFullName(e.target.value); setStatus('idle') }}
-          placeholder={t.fullNamePlaceholder}
-          autoComplete="name"
-        />
-      </label>
-
-      <fieldset>
-        <legend>{t.attendanceQuestion}</legend>
-        {(['yes', 'no'] as const).map((value) => (
-          <label className={`radio-card ${attendance === value ? 'radio-card--selected' : ''}`} key={value}>
-            <input
-              type="radio"
-              name="attendance"
-              value={value}
-              checked={attendance === value}
-              onChange={() => { setAttendance(value); setStatus('idle') }}
-            />
-            <i />
-            <span>{value === 'yes' ? t.yes : t.no}</span>
-          </label>
-        ))}
-      </fieldset>
-
-      <button className="primary-button" type="submit" disabled={status === 'sending'}>
-        {status === 'sending' ? t.sending : t.send}
-      </button>
-
-      <AnimatePresence mode="wait">
-        {status !== 'idle' && status !== 'sending' && (
-          <motion.p
-            className={`form-message form-message--${status}`}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            key={status}
-          >
-            {status === 'success' ? t.success : status === 'demo' ? t.demoSuccess : t.required}
-          </motion.p>
-        )}
-      </AnimatePresence>
-    </form>
-  )
-}
-
-function MainInvitation({ language, revealed }: { language: Language; revealed: boolean }) {
-  const t = copy[language]
-  const names = event.partners[language]
-  const reduced = useReducedMotion()
-
-  return (
-    <main className={`invitation invitation--${language}`}>
+    <main className="invitation">
       <section className={`hero ${revealed ? 'hero--active' : ''}`}>
         <img src={photoUrl} alt="Пара танцует" />
         <div className="hero__shade" />
         <div className="hero__content">
           <h1><span>{names.one}</span><i>&</i><span>{names.two}</span></h1>
-          <div><span /><b>{t.heroDate}</b><span /></div>
+          <div><span /><b>{copy.heroDate}</b><span /></div>
           <span className="hero__down" aria-hidden="true" />
         </div>
         <svg className="hero__tear" viewBox="0 0 640 46" preserveAspectRatio="none" aria-hidden="true">
@@ -307,9 +309,8 @@ function MainInvitation({ language, revealed }: { language: Language; revealed: 
 
       <AnimatedSection className="intro paper-section">
         <Reveal>
-          <span className="ornament">✦</span>
-          <h2>{t.dearTitle}</h2>
-          <p>{t.dearText}</p>
+          <h2 className={getIntroTitleClass(introTitle, Boolean(guestName))}>{introTitle}</h2>
+          <p>{copy.dearText}</p>
           <figure className="intro-photo">
             <img src={introPhotoUrl} alt="" />
           </figure>
@@ -318,88 +319,24 @@ function MainInvitation({ language, revealed }: { language: Language; revealed: 
 
       <AnimatedSection className="date-section dark-section">
         <Reveal className="date-card">
-          <p>{t.inviteText}</p>
+          <p>{copy.inviteText}</p>
           <div className="date-display">
             <span>{event.dateDay}</span>
-            <div><b>{t.month}</b><i>{t.weekday}</i><small>{event.dateYear}</small></div>
+            <div><b>{copy.month}</b><i>{copy.weekday}</i><small>{event.dateYear}</small></div>
           </div>
-          <div className="date-time"><Icon name="calendar" /><span>{t.timeLabel} {event.time}</span></div>
+          <div className="date-time"><Icon name="calendar" /><span>{copy.timeLabel} {event.time}</span></div>
         </Reveal>
       </AnimatedSection>
 
       <AnimatedSection className="location paper-section">
         <Reveal>
-          <SectionTitle number="01">{t.locationLabel}</SectionTitle>
+          <SectionTitle number="01">{copy.locationLabel}</SectionTitle>
           <div className="location-card">
             <Icon name="map" />
-            <h3>{event.venue[language]}</h3>
-            <p>{event.address[language]}</p>
-            <a className="outline-button" href={event.mapUrl} target="_blank" rel="noreferrer">{t.mapButton}</a>
+            <h3>{event.venue}</h3>
+            <p>{event.address}</p>
+            <a className="outline-button" href={event.mapUrl} target="_blank" rel="noreferrer">{copy.mapButton}</a>
           </div>
-        </Reveal>
-      </AnimatedSection>
-
-      <AnimatedSection className="details dark-section">
-        <Reveal>
-          <SectionTitle number="02">{t.detailsLabel}</SectionTitle>
-          <div className="details__list">
-            {t.details.map((detail, index) => (
-              <article key={detail}>
-                <span>0{index + 1}</span>
-                <p>{detail}</p>
-              </article>
-            ))}
-          </div>
-        </Reveal>
-      </AnimatedSection>
-
-      <AnimatedSection className="schedule stone-section">
-        <Reveal>
-          <SectionTitle number="03">{t.scheduleLabel}</SectionTitle>
-          <motion.div
-            className="timeline"
-            initial={reduced ? false : 'hidden'}
-            whileInView={reduced ? undefined : 'visible'}
-            viewport={{ once: true, amount: 0.28 }}
-            variants={{ visible: { transition: { staggerChildren: 0.42, delayChildren: 0.12 } } }}
-          >
-            {t.schedule.map(([time, label], index) => (
-              <motion.div
-                className="timeline__item"
-                key={time}
-                variants={{
-                  hidden: { opacity: 0, x: -20, y: 12 },
-                  visible: { opacity: 1, x: 0, y: 0, transition: { duration: 0.72, ease: [0.22, 1, 0.36, 1] } },
-                }}
-              >
-                <time>{time}</time>
-                <i><span>{index + 1}</span></i>
-                <p>{label}</p>
-              </motion.div>
-            ))}
-          </motion.div>
-        </Reveal>
-      </AnimatedSection>
-
-      {/*
-      <AnimatedSection className="dress paper-section">
-        <Reveal>
-          <SectionTitle number="04">{t.dressLabel}</SectionTitle>
-          <p className="section-copy">{t.dressText}</p>
-          <div className="palette" aria-label="Цветовая палитра">
-            {['#272724', '#6f5a4d', '#9e8270', '#c6b5a3', '#e5ddd1'].map((color, index) => (
-              <motion.i key={color} style={{ background: color }} initial={{ scale: 0 }} whileInView={{ scale: 1 }} viewport={{ once: true }} transition={{ delay: index * 0.08 }} />
-            ))}
-          </div>
-        </Reveal>
-      </AnimatedSection>
-      */}
-
-      <AnimatedSection className="rsvp-section paper-section">
-        <Reveal>
-          <SectionTitle number="04">{t.rsvpLabel}</SectionTitle>
-          <p className="section-copy">{t.rsvpText}</p>
-          <RsvpForm language={language} />
         </Reveal>
       </AnimatedSection>
 
@@ -407,10 +344,10 @@ function MainInvitation({ language, revealed }: { language: Language; revealed: 
         <img src={countdownPhotoUrl} alt="" />
         <div className="countdown-section__shade" />
         <Reveal className="countdown-section__content">
-          <span>{t.countdownLabel}</span>
-          <Countdown language={language} />
+          <span>{copy.countdownLabel}</span>
+          <Countdown />
           <Icon name="heart" />
-          <p>{t.footer}</p>
+          <p>{copy.footer}</p>
           <h2>{names.one} <i>&</i> {names.two}</h2>
         </Reveal>
       </AnimatedSection>
@@ -418,8 +355,164 @@ function MainInvitation({ language, revealed }: { language: Language; revealed: 
   )
 }
 
+function LinkGeneratorPage() {
+  const [manualName, setManualName] = useState('')
+  const [manualCopied, setManualCopied] = useState(false)
+  const [batchCopied, setBatchCopied] = useState(false)
+  const [rowCopiedId, setRowCopiedId] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [rows, setRows] = useState<GeneratedLink[]>([])
+  const [error, setError] = useState('')
+  const [parsing, setParsing] = useState(false)
+
+  const manualLink = createGuestLink(manualName)
+  const normalizedManualName = normalizeGuestName(manualName)
+  const allLinksText = rows.map((row) => `${row.name} — ${row.url}`).join('\n')
+
+  useEffect(() => {
+    document.documentElement.lang = 'ru'
+    document.body.classList.remove('is-locked')
+  }, [])
+
+  async function handleManualCopy() {
+    await copyText(manualLink)
+    setManualCopied(true)
+    window.setTimeout(() => setManualCopied(false), 1800)
+  }
+
+  async function handleRowCopy(row: GeneratedLink) {
+    await copyText(row.url)
+    setRowCopiedId(row.id)
+    window.setTimeout(() => setRowCopiedId(''), 1600)
+  }
+
+  async function handleBatchCopy() {
+    if (!allLinksText) return
+    await copyText(allLinksText)
+    setBatchCopied(true)
+    window.setTimeout(() => setBatchCopied(false), 1800)
+  }
+
+  async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setParsing(true)
+    setError('')
+    setFileName(file.name)
+    setRows([])
+
+    try {
+      const table = await readGuestRowsFromFile(file)
+
+      const parsedRows = table
+        .map((row, index) => {
+          const firstValue = Array.isArray(row) ? row.find((cell) => normalizeGuestName(cell)) : ''
+          const name = normalizeGuestName(firstValue)
+
+          if (!name || (index === 0 && isHeaderLike(name))) return null
+
+          return {
+            id: `${index}-${name}`,
+            name,
+            url: createGuestLink(name),
+          }
+        })
+        .filter((row): row is GeneratedLink => Boolean(row))
+
+      if (!parsedRows.length) {
+        throw new Error('Не нашёл имён в первом листе. Проверь, что имена стоят построчно в первом столбце или в первом непустом столбце строки.')
+      }
+
+      setRows(parsedRows)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Не удалось прочитать файл.')
+    } finally {
+      setParsing(false)
+      event.target.value = ''
+    }
+  }
+
+  return (
+    <main className="link-generator">
+      <section className="link-generator__hero">
+        <a href={`${getInviteBaseUrl()}#/`} className="link-generator__back">← к приглашению</a>
+        <span>A · A</span>
+        <h1>Генератор персональных ссылок</h1>
+        <p>Введите имя вручную или загрузите Excel-файл со списком гостей. Файлы читаются прямо в браузере и никуда не отправляются.</p>
+      </section>
+
+      <section className="generator-card generator-card--manual">
+        <div className="generator-card__title">
+          <span>01</span>
+          <h2>Одна ссылка</h2>
+        </div>
+
+        <label className="generator-field">
+          <span>Имя или обращение</span>
+          <input
+            value={manualName}
+            onChange={(event) => setManualName(event.target.value)}
+            placeholder="Николас с супругой"
+            autoComplete="off"
+          />
+        </label>
+
+        <div className="generated-preview">
+          <span>{normalizedManualName ? 'Персональная ссылка' : 'Общая ссылка без имени'}</span>
+          <code>{manualLink}</code>
+        </div>
+
+        <div className="generator-actions">
+          <button type="button" onClick={handleManualCopy}>{manualCopied ? 'Скопировано' : 'Скопировать ссылку'}</button>
+          <a href={manualLink} target="_blank" rel="noreferrer">Открыть</a>
+        </div>
+      </section>
+
+      <section className="generator-card">
+        <div className="generator-card__title">
+          <span>02</span>
+          <h2>Список из Excel</h2>
+        </div>
+
+        <label className="file-drop">
+          <input type="file" accept=".xlsx,.csv,.txt" onChange={handleFileUpload} />
+          <b>{parsing ? 'Читаю файл…' : 'Загрузить Excel / CSV'}</b>
+          <small>Имена должны идти построчно. Берём первый непустой текст в каждой строке. Поддерживаются .xlsx, .csv и .txt.</small>
+        </label>
+
+        {fileName && <p className="file-note">Файл: {fileName}</p>}
+        {error && <p className="generator-error">{error}</p>}
+
+        {!!rows.length && (
+          <>
+            <div className="generator-summary">
+              <span>Найдено гостей: {rows.length}</span>
+              <button type="button" onClick={handleBatchCopy}>{batchCopied ? 'Скопировано' : 'Скопировать все ссылки'}</button>
+            </div>
+
+            <div className="generated-list">
+              {rows.map((row) => (
+                <article key={row.id}>
+                  <div>
+                    <b>{row.name}</b>
+                    <code>{row.url}</code>
+                  </div>
+                  <button type="button" onClick={() => handleRowCopy(row)}>
+                    {rowCopiedId === row.id ? 'OK' : 'Копировать'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+    </main>
+  )
+}
+
 function InvitationApp() {
-  const [language, setLanguage] = useState<Language>('ru')
+  const [guestName, setGuestName] = useState(getGuestNameFromUrl)
   const [opening, setOpening] = useState(false)
   const [gateVisible, setGateVisible] = useState(true)
   const [musicPlaying, setMusicPlaying] = useState(false)
@@ -432,8 +525,14 @@ function InvitationApp() {
   useSmoothWheelScroll(!gateVisible)
 
   useEffect(() => {
-    document.documentElement.lang = language === 'ru' ? 'ru' : 'hy'
-  }, [language])
+    document.documentElement.lang = 'ru'
+  }, [])
+
+  useEffect(() => {
+    const updateGuestName = () => setGuestName(getGuestNameFromUrl())
+    window.addEventListener('popstate', updateGuestName)
+    return () => window.removeEventListener('popstate', updateGuestName)
+  }, [])
 
   useEffect(() => {
     document.body.classList.toggle('is-locked', gateVisible)
@@ -504,20 +603,19 @@ function InvitationApp() {
     startMusic()
   }
 
-  const t = copy[language]
   const musicActive = musicPlaying || musicStarting
 
   return (
     <>
       <audio ref={audioRef} preload="none" onEnded={playNextMusicTrack} />
-      <MainInvitation language={language} revealed={!gateVisible} />
+      <MainInvitation revealed={!gateVisible} guestName={guestName} />
 
       <div className="floating-controls">
         {!gateVisible && (
           <motion.button
             className={`music-toggle ${musicStarting ? 'music-toggle--starting' : ''}`}
             onClick={toggleMusic}
-            aria-label={musicStarting ? getMusicPendingLabel(language) : musicPlaying ? t.musicOn : t.musicOff}
+            aria-label={musicStarting ? copy.musicStarting : musicPlaying ? copy.musicOn : copy.musicOff}
             disabled={musicStarting}
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -526,33 +624,20 @@ function InvitationApp() {
             {musicActive && <i />}
           </motion.button>
         )}
-        <LanguageToggle language={language} onChange={() => setLanguage(language === 'ru' ? 'hy' : 'ru')} />
       </div>
 
       <AnimatePresence>
-        {gateVisible && <EnvelopeGate opening={opening} language={language} onOpen={openInvitation} />}
+        {gateVisible && <EnvelopeGate opening={opening} onOpen={openInvitation} />}
       </AnimatePresence>
     </>
   )
 }
 
-function isAdminRoute() {
-  const hash = window.location.hash
-  return (
-    hash.startsWith('#/admin') ||
-    hash.includes('access_token=') ||
-    hash.includes('refresh_token=') ||
-    hash.includes('error_code=') ||
-    hash.includes('type=') ||
-    new URLSearchParams(window.location.search).has('admin')
-  )
-}
-
 export default function App() {
-  const [adminRoute, setAdminRoute] = useState(isAdminRoute)
+  const [linksRoute, setLinksRoute] = useState(isLinksRoute)
 
   useEffect(() => {
-    const handleRoute = () => setAdminRoute(isAdminRoute())
+    const handleRoute = () => setLinksRoute(isLinksRoute())
     window.addEventListener('hashchange', handleRoute)
     window.addEventListener('popstate', handleRoute)
     return () => {
@@ -561,13 +646,5 @@ export default function App() {
     }
   }, [])
 
-  if (adminRoute) {
-    return (
-      <Suspense fallback={<div className="route-loader"><span /></div>}>
-        <AdminPage />
-      </Suspense>
-    )
-  }
-
-  return <InvitationApp />
+  return linksRoute ? <LinkGeneratorPage /> : <InvitationApp />
 }
